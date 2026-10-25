@@ -249,27 +249,29 @@ class MainActivity : AppCompatActivity(), OnScreenSizeCalculatedListener
             }
         }
     }
-
     private fun loadUnityBanner() {
         val placementId = placementId()
-        val activity = this // 直接Activity(this)を指定
 
         // 1. 重複防止のため、まずは器（adView）の中身を綺麗にクリア
         binding.adView.removeAllViews()
 
-        // 2. 表示（Shown）を監視する最新のリスナー（必須の3メソッド）
+        // 2. 表示（Shown）を監視するリスナー
         val showListener = object : BannerShowListener {
             override fun onImpression(banner: BannerAd) {
-                activity.runOnUiThread {
+                runOnUiThread {
                     Log.d("UnityAds", "バナーが表示されました（インプレッション）。")
                     unityAdsDisplay = UnityAdsDisplay.DISPLAY
                     unityAdsDisplayListener?.invoke(UnityAdsStatus.BANNER_SHOWN)
+                    // 広告が出たらラベルは完全に非表示
+                    binding.adArea.visibility = android.view.View.INVISIBLE
+                    binding.adView.visibility = android.view.View.VISIBLE
                 }
             }
             override fun onFailedToShow(banner: BannerAd, error: UnityAdsError) {
-                activity.runOnUiThread {
+                runOnUiThread {
                     Log.e("UnityAds", "バナーの表示に失敗しました: ${error.message}")
                     unityAdsDisplay = UnityAdsDisplay.NONE
+                    binding.adArea.visibility = android.view.View.VISIBLE
                 }
             }
             override fun onClicked(banner: BannerAd) {
@@ -277,64 +279,84 @@ class MainActivity : AppCompatActivity(), OnScreenSizeCalculatedListener
             }
         }
 
-        // 3. 正しい型（BannerConfiguration）でビルド
-        val config = BannerConfiguration.Builder(placementId, BannerSize(320, 50), showListener).build()
-
-        // 4. ここで広告のロードを実際に実行しています！】
+        // 3. 最新のBuilderを使って、サイズ、配置ID、そしてshowListenerをセットしてビルド
+        val bannerSize = BannerSize(320, 50)
+        val config = BannerConfiguration.Builder(placementId, bannerSize, showListener).build()
         Log.d("UnityAds", "広告のロード（読み込み）を開始します...")
+
+        // 4. 最新の load 処理（引数は config と listener の2つのみ）
         BannerAd.load(config, object : LoadListener<BannerAd> {
 
-            //ロード成功時
-            override fun onAdLoaded(ad: BannerAd?, error: UnityAdsError?) {
-                if (error == null && ad != null) {
+            // ロード成功時の新しいメソッド名
+            override fun onAdLoaded(banner: BannerAd?, error: UnityAdsError?) {
+                // エラーがなく、かつ banner が無事に取得できている場合
+                if (error == null && banner != null) {
                     Log.d("UnityAds", "★バナーのロードに成功しました。")
 
-                    activity.runOnUiThread {
+                    runOnUiThread {
                         // 過去の失敗時の黄色背景をクリア
                         binding.adView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
                         unityAdsDisplay = UnityAdsDisplay.DISPLAY
                         unityAdsDisplayListener?.invoke(UnityAdsStatus.BANNER_LOADED)
 
-                        //【重要】広告中身（ad.view）を、画面幅（screenWidth）に広げないようにします
-                        //320dp相当のピクセル幅で独立した「小さな箱」としてサイズを指定します
+                        // 320dp相当のピクセル幅を計算
                         val density = resources.displayMetrics.density
                         val adWidthPx = (320 * density).toInt()  // 約960px
                         val adHeightPx = adHeight.toInt()        // 50dp相当
 
-                        val adView = ad.view
-                        adView?.layoutParams = FrameLayout.LayoutParams(
+                        //下記の指定方法は方法1もしくは方法2のいずれでも実行可能でした
+                        //[方法1]
+                        /*
+                        // 親パーツの型「CoordinatorLayout.LayoutParams」に書き換えます
+                        val params = androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams(
                             adWidthPx,
-                            adHeightPx,
-                            android.view.Gravity.CENTER_HORIZONTAL //中央寄せ
-                        )
+                            adHeightPx
+                        ).apply {
+                            // 中央寄せの設定方法も親のルールに合わせます
+                            gravity = android.view.Gravity.CENTER_HORIZONTAL
+                        }
 
-                        // 5. 広告中身を器に追加して表示を復活させます
-                        binding.adView.removeAllViews()
+                        binding.adView.layoutParams = params
+                        */
+
+                        //[方法2]
+                        binding.adView.layoutParams.apply {
+                            width = adWidthPx
+                            height = adHeightPx
+                            //もし既存のLayoutParamsにgravityがあれば設定を上書き（なければこの行は不要またはエラーになります。エラーが出たらこの下の1行を消してください）
+                            (this as? androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams)?.gravity = android.view.Gravity.CENTER_HORIZONTAL
+                        }
+
+                        //5. 取得した広告のViewを、直接binding.adViewに流し込む（公式の新しい推奨）
+                        // ※これにより ad.view の null バグを完全に回避できます
+                        //val adView = banner.getView()
+                        val adView = banner.view
                         binding.adView.addView(adView)
 
-                        // 6. ラベルも広告も「両方表示」を維持します
-                        // 広告がジャストサイズ（320dp）に固定されたため、周りのラベルを巻き込んで消し去ることが物理的に不可能になります。
-                        binding.adArea.visibility = android.view.View.INVISIBLE
-                        binding.adView.visibility = android.view.View.VISIBLE
                     }
                 } else {
-                    //ロード失敗時
+                    // エラーがあった場合は、下の失敗時処理と同じ動きをさせる
                     Log.e("UnityAds", "❌バナーのロードに失敗しました。理由: ${error?.message}")
-                    activity.runOnUiThread {
-                        unityAdsDisplay = UnityAdsDisplay.NONE
-                        binding.adArea.visibility = android.view.View.VISIBLE
-                        unityAdsDisplayListener?.invoke(UnityAdsStatus.BANNER_LOAD_FAILED)
-
-                        // 失敗時は枠を維持して黄色にする
-                        binding.adView.layoutParams.apply {
-                            height = adHeight.toInt()
-                        }
-                        binding.adView.setBackgroundColor(android.graphics.Color.argb(100, 255, 255, 100))
-                    }
+                    handleLoadFailure()
                 }
             }
         })
+    }
+
+    // 失敗時の処理をまとめたヘルパー関数
+    private fun handleLoadFailure() {
+        runOnUiThread {
+            unityAdsDisplay = UnityAdsDisplay.NONE
+            binding.adArea.visibility = android.view.View.VISIBLE
+            unityAdsDisplayListener?.invoke(UnityAdsStatus.BANNER_LOAD_FAILED)
+
+            // 失敗時は枠を維持して黄色にする
+            binding.adView.layoutParams.apply {
+                height = adHeight.toInt()
+            }
+            binding.adView.setBackgroundColor(android.graphics.Color.argb(100, 255, 255, 100))
+        }
     }
 
     private fun adTestMethod() : Pair<String, Boolean>
