@@ -141,5 +141,8 @@ pluginManagement {
 
 ---
 
+## 更新履歴
+- 2026/10/25: Unity Ads SDKの最新仕様に対応。特定の端末で発生するnullバグを回避するため最新の `onAdLoaded` リスナーに移行し、親レイアウトの型崩れによるアプリ強制終了のバグを修正。
+
 ## 🔗 関連リンク
 * **開発者サイト:** [nekofes](https://nekofes.github.io/)
